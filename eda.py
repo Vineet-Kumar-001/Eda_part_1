@@ -1,130 +1,163 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
-# ---------------------------------------------------------
-# 📌 Create folder for saving PNGs
-# ---------------------------------------------------------
-output_path = os.path.join(os.getcwd(), "plots")
-os.makedirs(output_path, exist_ok=True)
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import r2_score, mean_absolute_error
 
 # ---------------------------------------------------------
-# 📌 Load dataset
+# 📁 Setup
 # ---------------------------------------------------------
-cars = pd.read_csv(r"Location of file copy the path ")
+SEED = 42
+np.random.seed(SEED)
+
+output_path = os.path.join(os.getcwd(), "plots")
+model_path = os.path.join(os.getcwd(), "models")
+os.makedirs(output_path, exist_ok=True)
+os.makedirs(model_path, exist_ok=True)
+
+# ---------------------------------------------------------
+# 📥 Load Data
+# ---------------------------------------------------------
+cars = pd.read_csv(r"PASTE_YOUR_FILE_PATH")
 
 print("Shape:", cars.shape)
-print("\nData Info:")
 print(cars.info())
-print("\nColumns:", cars.columns.tolist())
-
-print("\nHead:")
-print(cars.head())
-print("\nRandom Sample:")
-print(cars.sample(5))
 
 # ---------------------------------------------------------
-# 🧹 Clean Data
+# 🧹 Cleaning
 # ---------------------------------------------------------
-cars = cars.drop(['MSRP', 'Invoice'], axis=1)
-
-cars = cars.drop_duplicates(keep='first')
-
-print("\nMissing values:")
-print(cars.isnull().sum())
-
+cars.drop(['MSRP', 'Invoice'], axis=1, errors='ignore', inplace=True)
+cars.drop_duplicates(inplace=True)
 cars.dropna(inplace=True)
 
 # ---------------------------------------------------------
-# 🔽 Sort Data
+# 🎯 Target & Features
 # ---------------------------------------------------------
-cars_sort = cars.sort_values(by='MPG_City', ascending=False)
-print("\nSorted Data:")
-print(cars_sort.head())
+TARGET = 'MPG_City'
 
-# ---------------------------------------------------------
-# 🌍 Origin Stats
-# ---------------------------------------------------------
-print("\nContinent Counts:")
-print(cars['Origin'].value_counts())
-
-print("\nUnique Car Makes:")
-print(cars['Make'].unique())
+X = cars.drop(TARGET, axis=1)
+y = cars[TARGET]
 
 # ---------------------------------------------------------
-# 🔢 Encode Origin
+# 🧠 Feature Types
 # ---------------------------------------------------------
-def origin_to_num(x):
-    if x == "Asia": return 1
-    if x == "Europe": return 2
-    if x == "USA": return 3
-
-cars['Origin'] = cars['Origin'].apply(origin_to_num)
+num_cols = X.select_dtypes(include=['int64', 'float64']).columns
+cat_cols = X.select_dtypes(include=['object']).columns
 
 # ---------------------------------------------------------
-# 🔎 iloc/loc Examples
+# 🔄 Preprocessing Pipeline
 # ---------------------------------------------------------
-print("\nFirst Row:", cars.iloc[0])
-print("\nLast Row:", cars.iloc[-1])
-print("\nFirst 5 rows using iloc:")
-print(cars.iloc[0:5])
-print("\nColumn 0:")
-print(cars.iloc[:, 0])
-print("\nRows 0,2,4 — Columns 1,3,5:")
-print(cars.iloc[[0, 2, 4], [1, 3, 5]])
+num_pipeline = Pipeline([
+    ('scaler', StandardScaler())
+])
 
-x = cars.loc[0:5, 'MPG_City']
-print("\nSelected Series:", x)
+cat_pipeline = Pipeline([
+    ('onehot', OneHotEncoder(handle_unknown='ignore'))
+])
 
-# ---------------------------------------------------------
-# 🔢 Select Numerical Columns
-# ---------------------------------------------------------
-cars1 = cars[['EngineSize', 'Cylinders', 'Horsepower', 'MPG_City',
-              'Weight', 'Wheelbase', 'Length']]
-
-cars = cars.select_dtypes(include=['float64', 'int64'])
+preprocessor = ColumnTransformer([
+    ('num', num_pipeline, num_cols),
+    ('cat', cat_pipeline, cat_cols)
+])
 
 # ---------------------------------------------------------
-# 📊 Summary & Correlation
+# 🤖 Models
 # ---------------------------------------------------------
-print("\nSummary Statistics:")
-print(cars.describe())
-
-print("\nCorrelation with MPG_City:")
-print(cars.corr()['MPG_City'])
+models = {
+    "LinearRegression": LinearRegression(),
+    "RandomForest": RandomForestRegressor(n_estimators=100, random_state=SEED)
+}
 
 # ---------------------------------------------------------
-# 📈 Graphs — Save every graph to PNG
+# ✂️ Train/Test Split
+# ---------------------------------------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=SEED
+)
+
+# ---------------------------------------------------------
+# 🏋️ Training + Evaluation
+# ---------------------------------------------------------
+results = {}
+
+for name, model in models.items():
+    pipe = Pipeline([
+        ('preprocessor', preprocessor),
+        ('model', model)
+    ])
+
+    pipe.fit(X_train, y_train)
+    preds = pipe.predict(X_test)
+
+    r2 = r2_score(y_test, preds)
+    mae = mean_absolute_error(y_test, preds)
+
+    results[name] = {"R2": r2, "MAE": mae}
+
+    print(f"\n{name}")
+    print("R2:", r2)
+    print("MAE:", mae)
+
+# ---------------------------------------------------------
+# 📊 Visualization
 # ---------------------------------------------------------
 
-# 1. Distribution Plot
-plt.figure(figsize=(7, 5))
-sns.displot(data=cars, x='MPG_City', bins=10, kde=True, color='blue')
-plt.savefig(os.path.join(output_path, "mpg_distribution.png"))
-plt.close()
+# 1. Distribution
+sns.histplot(cars[TARGET], kde=True)
+plt.savefig(os.path.join(output_path, "target_distribution.png"))
+plt.clf()
 
-# 2. Regression Plot
-plt.figure(figsize=(7, 5))
-sns.regplot(x='Length', y='MPG_City', data=cars)
-plt.savefig(os.path.join(output_path, "length_vs_mpg_regression.png"))
-plt.close()
-
-# 3. Boxplot
-plt.figure(figsize=(7, 5))
-sns.boxplot(x='Origin', y='MPG_City', data=cars)
-plt.savefig(os.path.join(output_path, "origin_mpg_boxplot.png"))
-plt.close()
-
-# 4. Pairplot
-sns.pairplot(cars, hue='Origin')
-plt.savefig(os.path.join(output_path, "pairplot.png"))
-plt.close()
-
-# 5. Heatmap
+# 2. Correlation Heatmap
 plt.figure(figsize=(10, 7))
-sns.heatmap(cars.corr(), annot=True, cmap="coolwarm")
-plt.savefig(os.path.join(output_path, "correlation_heatmap.png"))
-plt.close()
+sns.heatmap(cars.corr(numeric_only=True), annot=True)
+plt.savefig(os.path.join(output_path, "heatmap.png"))
+plt.clf()
 
-print("\n🎉 All graphs saved in folder:", output_path)
+# 3. Regression Example
+sns.regplot(x='Horsepower', y=TARGET, data=cars)
+plt.savefig(os.path.join(output_path, "horsepower_vs_mpg.png"))
+plt.clf()
+
+# ---------------------------------------------------------
+# 🌳 Feature Importance (Random Forest)
+# ---------------------------------------------------------
+rf_pipe = Pipeline([
+    ('preprocessor', preprocessor),
+    ('model', RandomForestRegressor(n_estimators=100, random_state=SEED))
+])
+
+rf_pipe.fit(X_train, y_train)
+
+model = rf_pipe.named_steps['model']
+
+importances = model.feature_importances_
+
+# Get feature names after encoding
+ohe = rf_pipe.named_steps['preprocessor'].named_transformers_['cat']['onehot']
+encoded_features = list(ohe.get_feature_names_out(cat_cols))
+
+all_features = list(num_cols) + encoded_features
+
+feat_imp = pd.Series(importances, index=all_features).sort_values(ascending=False)
+
+feat_imp.head(10).plot(kind='barh')
+plt.savefig(os.path.join(output_path, "feature_importance.png"))
+plt.clf()
+
+# ---------------------------------------------------------
+# 💾 Save Model
+# ---------------------------------------------------------
+import joblib
+joblib.dump(rf_pipe, os.path.join(model_path, "car_model.pkl"))
+
+print("\n✅ Pipeline complete")
+print("📁 Plots saved in:", output_path)
+print("📦 Model saved in:", model_path)
